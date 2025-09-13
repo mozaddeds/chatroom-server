@@ -27,19 +27,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async handleConnection(@ConnectedSocket() client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
-    
+
     // Extract user ID from handshake query (set by frontend during connection)
     const userId = client.handshake.query.userId as string;
-    
+
     if (userId) {
       this.onlineUsers.set(client.id, userId);
-      
+
       // Update user online status in database
       await this.prisma.user.update({
         where: { id: userId },
-        data: { isOnline: true, lastSeen: new Date() }
+        data: { isOnline: true, lastSeen: new Date() },
       });
-      
+
       // Notify all clients about online users
       this.server.emit('online-users', await this.getOnlineUsers());
     }
@@ -47,55 +47,56 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async handleDisconnect(@ConnectedSocket() client: Socket) {
     const userId = this.onlineUsers.get(client.id);
-    
+
     if (userId) {
       this.onlineUsers.delete(client.id);
-      
+
       // Update user offline status in database
       await this.prisma.user.update({
         where: { id: userId },
-        data: { isOnline: false, lastSeen: new Date() }
+        data: { isOnline: false, lastSeen: new Date() },
       });
-      
+
       // Notify all clients about online users
       this.server.emit('online-users', await this.getOnlineUsers());
     }
-    
+
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
   @SubscribeMessage('send-message')
   async handleNewMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { 
-      message: string; 
-      receiverId?: string; 
+    @MessageBody()
+    data: {
+      message: string;
+      receiverId?: string;
       groupId?: string;
     },
   ) {
     try {
       const userId = this.onlineUsers.get(client.id);
-      
+
       if (!userId) {
         return { status: 'error', message: 'User not authenticated' };
       }
 
-      // Save message to database
+      // Save message to database - Prisma will handle createdAt/updatedAt automatically
       const newMessage = await this.prisma.message.create({
         data: {
           content: data.message,
           senderId: userId,
-          receiverId: data.receiverId,
-          groupId: data.groupId,
+          receiverId: data.receiverId || null, // Provide null if undefined
+          groupId: data.groupId || null, // Provide null if undefined
         },
         include: {
           sender: {
             select: {
               id: true,
               username: true,
-            }
-          }
-        }
+            },
+          },
+        },
       });
 
       // Emit message to recipient(s)
@@ -129,7 +130,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { receiverId?: string; groupId?: string },
   ) {
     const userId = this.onlineUsers.get(client.id);
-    
+
     if (data.receiverId) {
       client.to(data.receiverId).emit('user-typing', {
         userId,
@@ -149,7 +150,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { receiverId?: string; groupId?: string },
   ) {
     const userId = this.onlineUsers.get(client.id);
-    
+
     if (data.receiverId) {
       client.to(data.receiverId).emit('user-typing', {
         userId,
@@ -166,9 +167,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private async getOnlineUsers(): Promise<string[]> {
     const onlineUsers = await this.prisma.user.findMany({
       where: { isOnline: true },
-      select: { id: true }
+      select: { id: true },
     });
-    
-    return onlineUsers.map(user => user.id);
+
+    return onlineUsers.map((user) => user.id);
   }
 }
