@@ -1,0 +1,58 @@
+// schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model user {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  isOnline  Boolean  @default(false)
+  lastSeen  DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations with explicit names
+  sentMessages     message[] @relation("MessageSender")
+  receivedMessages message[] @relation("MessageReceiver")
+  groups           groupmember[]
+}
+
+model message {
+  id          String   @id @default(cuid())
+  content     String
+  createdAt   DateTime @default(now())
+  senderId    String
+  receiverId  String?
+  groupId     String?
+  
+  // Relations with explicit names
+  sender    user   @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver  user?  @relation("MessageReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  group     group? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+model group {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  
+  members   groupmember[]
+  messages  message[]
+}
+
+model groupmember {
+  id      String   @id @default(cuid())
+  userId  String
+  groupId String
+  
+  user    user  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group   group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, groupId])
+}
